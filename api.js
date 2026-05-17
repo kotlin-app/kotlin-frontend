@@ -60,10 +60,16 @@ async function login(username, password) {
   };
 }
 
-// ---------- 商品一覧 ----------
+// ---------- 商品一覧・検索 ----------
 // BFF レスポンス: [{ id, name, price, description, stock, category }]
-async function fetchProducts() {
-  const list = await request("/api/products", {
+async function fetchProducts({ q, category, minPrice, maxPrice } = {}) {
+  const params = new URLSearchParams();
+  if (q)        params.set("q", q);
+  if (category) params.set("category", category);
+  if (minPrice) params.set("minPrice", minPrice);
+  if (maxPrice) params.set("maxPrice", maxPrice);
+  const qs = params.toString() ? "?" + params.toString() : "";
+  const list = await request(`/api/products${qs}`, {
     headers: { "X-Client-Type": "web" },
   });
   return list.map(p => ({

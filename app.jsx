@@ -364,7 +364,7 @@ function LoginScreen({ onLoggedIn }) {
 // ============================================================
 // Product Card
 // ============================================================
-function ProductCard({ p, onClick }) {
+function ProductCard({ p, onClick, isFav, onToggleFav }) {
   const stockTag =
     p.stock === 0 ? { cls: "tag-stock-out", text: "在庫切れ" } :
     p.stock < 30 ? { cls: "tag-stock-low", text: `残り${p.stock}点` } :
@@ -380,7 +380,15 @@ function ProductCard({ p, onClick }) {
         {p.stock === 0 && <div className="sold-out">SOLD OUT</div>}
       </div>
       <div className="card-body">
-        <div className="card-shop"><span className="shop-dot">K</span>{p.shop}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div className="card-shop"><span className="shop-dot">K</span>{p.shop}</div>
+          {onToggleFav && (
+            <button className={`wishlist-btn ${isFav ? "active" : ""}`}
+              onClick={e => { e.stopPropagation(); onToggleFav(p.id); }}
+              title={isFav ? "お気に入りから削除" : "お気に入りに追加"}
+            >{isFav ? "★" : "☆"}</button>
+          )}
+        </div>
         <h3 className="card-name">{p.name}</h3>
         <div className="card-rating">
           <StarRow value={p.rating} />
@@ -418,43 +426,57 @@ function CardSkeleton() {
 // ============================================================
 // Product List Screen
 // ============================================================
-function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch, cartCount, onCartClick, onOrdersClick }) {
+function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch, cartCount, onCartClick, onOrdersClick, onWishlistClick, wishlist, onToggleWishlist }) {
   const [products, setProducts] = useState(null);
   const [error, setError] = useState(null);
   const [category, setCategory] = useState("すべて");
   const [sort, setSort] = useState("recommended");
   const [activeQuery, setActiveQuery] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [priceOpen, setPriceOpen] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    setError(null);
-    fetchProducts()
-      .then(d => { if (alive) setProducts(d); })
-      .catch(e => { if (alive) setError(e.message); });
-    return () => { alive = false; };
+  const loadProducts = useCallback((q, cat, min, max) => {
+    setError(null); setProducts(null);
+    fetchProducts({
+      q: q || undefined,
+      category: cat && cat !== "すべて" ? cat : undefined,
+      minPrice: min ? parseInt(min) : undefined,
+      maxPrice: max ? parseInt(max) : undefined,
+    })
+      .then(setProducts)
+      .catch(e => setError(e.message));
   }, []);
+
+  useEffect(() => { loadProducts("", "すべて", "", ""); }, []);
+
+  const handleSearch = (q) => {
+    setActiveQuery(q);
+    loadProducts(q, category, minPrice, maxPrice);
+    onSearch && onSearch(q);
+  };
+
+  const handleCategoryChange = (cat) => {
+    setCategory(cat);
+    loadProducts(activeQuery, cat, minPrice, maxPrice);
+  };
+
+  const handlePriceFilter = () => {
+    loadProducts(activeQuery, category, minPrice, maxPrice);
+    setPriceOpen(false);
+  };
 
   const filtered = useMemo(() => {
     if (!products) return [];
-    let list = products;
-    if (category !== "すべて") list = list.filter(p => p.category === category);
-    if (activeQuery) {
-      const q = activeQuery.toLowerCase();
-      list = list.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-    }
-    list = [...list];
+    let list = [...products];
     if (sort === "price-asc") list.sort((a, b) => a.price - b.price);
     else if (sort === "price-desc") list.sort((a, b) => b.price - a.price);
     else if (sort === "rating") list.sort((a, b) => b.rating - a.rating);
     else if (sort === "reviews") list.sort((a, b) => b.reviewCount - a.reviewCount);
     return list;
-  }, [products, category, sort, activeQuery]);
+  }, [products, sort]);
 
-  const cats = useMemo(() => {
-    if (!products) return [];
-    const set = new Set(products.map(p => p.category));
-    return ["すべて", ...Array.from(set)];
-  }, [products]);
+  const cats = ["すべて", "家電", "日用品", "スポーツ", "食品", "ファッション", "本", "コスメ"];
 
   return (
     <div data-screen-label="02 Product List">
@@ -462,11 +484,13 @@ function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch
         user={user}
         query={query}
         setQuery={setQuery}
-        onSearch={(q) => { setActiveQuery(q); onSearch && onSearch(q); }}
+        onSearch={handleSearch}
         onLogout={onLogout}
         cartCount={cartCount}
         onCartClick={onCartClick}
         onOrdersClick={onOrdersClick}
+        onWishlistClick={onWishlistClick}
+        wishlistCount={wishlist ? wishlist.size : 0}
       />
 
       <div className="page">
@@ -497,9 +521,31 @@ function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch
               <button
                 key={c}
                 className={`chip ${category === c ? "active" : ""}`}
-                onClick={() => setCategory(c)}
+                onClick={() => handleCategoryChange(c)}
               >{c}</button>
             ))}
+            <div style={{ position: "relative" }}>
+              <button className={`chip ${(minPrice || maxPrice) ? "active" : ""}`} onClick={() => setPriceOpen(o => !o)}>
+                価格帯 {(minPrice || maxPrice) ? `(¥${minPrice||"0"}〜¥${maxPrice||"∞"})` : ""}
+              </button>
+              {priceOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#fff",
+                              border: "1px solid var(--border)", borderRadius: 8, padding: 12, zIndex: 100,
+                              boxShadow: "0 4px 16px rgba(0,0,0,.12)", display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="number" placeholder="最安値" value={minPrice} onChange={e => setMinPrice(e.target.value)}
+                      style={{ width: 90, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6 }} />
+                    <span>〜</span>
+                    <input type="number" placeholder="最高値" value={maxPrice} onChange={e => setMaxPrice(e.target.value)}
+                      style={{ width: 90, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn-primary" style={{ flex: 1, padding: "6px 0", fontSize: 13 }} onClick={handlePriceFilter}>適用</button>
+                    <button className="chip" style={{ flex: 1, padding: "6px 0", fontSize: 13 }} onClick={() => { setMinPrice(""); setMaxPrice(""); loadProducts(activeQuery, category, "", ""); setPriceOpen(false); }}>クリア</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <select value={sort} onChange={e => setSort(e.target.value)}>
             <option value="recommended">おすすめ順</option>
@@ -521,7 +567,7 @@ function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch
               ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "60px 20px", color: "var(--ink-3)" }}>
                   該当する商品が見つかりませんでした
                 </div>
-              : filtered.map(p => <ProductCard key={p.id} p={p} onClick={onSelect} />)
+              : filtered.map(p => <ProductCard key={p.id} p={p} onClick={onSelect} isFav={wishlist && wishlist.has(p.id)} onToggleFav={onToggleWishlist} />)
           }
         </div>
       </div>
