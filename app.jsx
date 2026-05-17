@@ -1,6 +1,6 @@
 /* global React, ReactDOM, ECApi */
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
-const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, createOrder, fetchMyOrders, auth: apiAuth } = ECApi;
+const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, postReview, createOrder, fetchMyOrders, auth: apiAuth } = ECApi;
 
 // ============================================================
 // Utilities
@@ -542,6 +542,9 @@ function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSe
   const [fav, setFav] = useState(false);
   const [favShop, setFavShop] = useState(false);
   const [toast, setToast] = useState(null);
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -765,6 +768,48 @@ function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSe
                   <p className="review-body">{r.body}</p>
                 </div>
               ))}
+
+              <div className="review-form-box">
+                <h4 style={{ margin: "0 0 12px", fontSize: 15 }}>レビューを書く</h4>
+                {reviewError && <div className="error-banner" style={{ marginBottom: 10 }}><span className="err-icon">!</span>{reviewError}</div>}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, color: "var(--ink-2)" }}>評価:</span>
+                  {[1,2,3,4,5].map(s => (
+                    <button key={s} onClick={() => setReviewForm(f => ({ ...f, rating: s }))}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, lineHeight: 1,
+                               color: s <= reviewForm.rating ? "var(--accent)" : "#dcdcdc" }}>★</button>
+                  ))}
+                  <span style={{ fontSize: 13, color: "var(--ink-3)" }}>{reviewForm.rating}/5</span>
+                </div>
+                <textarea
+                  placeholder="商品の感想を入力してください（必須）"
+                  value={reviewForm.comment}
+                  onChange={e => setReviewForm(f => ({ ...f, comment: e.target.value }))}
+                  rows={3}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--border)",
+                           fontFamily: "inherit", fontSize: 14, resize: "vertical", boxSizing: "border-box" }}
+                />
+                <button
+                  className="btn-primary"
+                  style={{ marginTop: 10, padding: "8px 24px" }}
+                  disabled={reviewSubmitting || !reviewForm.comment.trim()}
+                  onClick={async () => {
+                    if (!reviewForm.comment.trim()) return;
+                    setReviewSubmitting(true); setReviewError(null);
+                    try {
+                      await postReview(id, reviewForm.rating, reviewForm.comment.trim());
+                      setReviewForm({ rating: 5, comment: "" });
+                      showToast("レビューを投稿しました");
+                      // 再フェッチで一覧を更新
+                      const updated = await fetchProduct(id);
+                      setData(updated);
+                    } catch(e) { setReviewError(e.message); }
+                    finally { setReviewSubmitting(false); }
+                  }}
+                >
+                  {reviewSubmitting ? "投稿中…" : "投稿する"}
+                </button>
+              </div>
             </div>
 
             <div className="back-row">

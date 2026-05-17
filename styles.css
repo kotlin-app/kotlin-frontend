@@ -937,3 +937,26 @@ img { display: block; max-width: 100%; }
   text-align: center;
   color: #888;
 }
+
+/* ---- Review Form ---- */
+.review-form-box {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-top: 16px;
+}
+
+/* ---- Admin Panel ---- */
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.admin-table th { background: var(--surface-2); font-weight: 600; }
+.admin-table tr:hover td { background: var(--surface-2); }
+.admin-form-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.admin-form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.admin-form-row input, .admin-form-row textarea, .admin-form-row select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit;
+}
+
+/* ---- Wishlist ---- */
+.wishlist-btn { background: none; border: none; cursor: pointer; font-size: 20px; line-height: 1; padding: 0; transition: transform .15s; }
+.wishlist-btn:hover { transform: scale(1.2); }
+.wishlist-btn.active { color: var(--brand); }
