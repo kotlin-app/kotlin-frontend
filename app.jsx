@@ -1,6 +1,8 @@
 /* global React, ReactDOM, ECApi */
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
-const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, postReview, createOrder, fetchMyOrders, auth: apiAuth } = ECApi;
+const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, postReview, createOrder, fetchMyOrders,
+        fetchWishlist, addToWishlist, removeFromWishlist,
+        adminListProducts, adminCreateProduct, adminUpdateProduct, adminUpdateStock, adminDeleteProduct, auth: apiAuth } = ECApi;
 
 // ============================================================
 // Utilities
@@ -74,7 +76,7 @@ function Topbar() {
   );
 }
 
-function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery, cartCount = 0, onCartClick, onOrdersClick }) {
+function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery, cartCount = 0, onCartClick, onOrdersClick, onWishlistClick, wishlistCount = 0, onAdminClick }) {
   const categories = ["すべて", "家電", "日用品", "スポーツ", "食品", "ファッション", "本", "コスメ", "ペット", "おもちゃ", "車・バイク"];
   return (
     <>
@@ -131,6 +133,10 @@ function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery, cartCo
             <div className="userbar-points" style={{ color: "var(--ink-3)" }}>うち期間限定 <strong style={{ fontSize: 14, color: "var(--ink-2)" }}>0</strong></div>
             <div className="userbar-spacer" />
             <button className="userbar-link" onClick={onOrdersClick}>注文履歴</button>
+            {user?.role === "ADMIN" && <>
+              <div className="userbar-divider" />
+              <button className="userbar-link" onClick={onAdminClick}>管理者パネル</button>
+            </>}
             <div className="userbar-divider" />
             <button className="userbar-link" onClick={onLogout}>ログアウト</button>
           </div>
@@ -1070,6 +1076,183 @@ function OrderHistoryScreen({ user, onBack, onLogout, cartCount, onCartClick }) 
 }
 
 // ============================================================
+// Wishlist Screen
+// ============================================================
+function WishlistScreen({ user, wishlist, onToggleWishlist, onSelect, onBack, onLogout, cartCount, onCartClick, onAdminClick }) {
+  const [products, setProducts] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!wishlist || wishlist.size === 0) { setProducts([]); return; }
+    fetchProducts()
+      .then(all => setProducts(all.filter(p => wishlist.has(p.id))))
+      .catch(e => setError(e.message));
+  }, [wishlist]);
+
+  return (
+    <div data-screen-label="Wishlist">
+      <Header user={user} onLogout={onLogout} query="" setQuery={() => {}} onLogoClick={onBack}
+              cartCount={cartCount} onCartClick={onCartClick} onAdminClick={onAdminClick} />
+      <div className="page">
+        <div className="breadcrumb">
+          <a href="#" onClick={e => { e.preventDefault(); onBack(); }}>ホーム</a>
+          <span className="sep">›</span><span>お気に入り</span>
+        </div>
+        <h2 style={{ margin: "16px 0 20px", fontSize: 20 }}>お気に入り商品（{wishlist ? wishlist.size : 0}件）</h2>
+
+        {error && <div className="error-banner"><span className="err-icon">!</span>{error}</div>}
+
+        {products === null ? (
+          <div style={{ textAlign: "center", padding: 40, color: "var(--ink-3)" }}>読み込み中…</div>
+        ) : products.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--ink-3)" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>☆</div>
+            <p>お気に入り商品がありません</p>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={onBack}>商品を見る</button>
+          </div>
+        ) : (
+          <div className="grid">
+            {products.map(p => (
+              <ProductCard key={p.id} p={p} onClick={onSelect}
+                isFav={wishlist.has(p.id)} onToggleFav={onToggleWishlist} />
+            ))}
+          </div>
+        )}
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+// ============================================================
+// Admin Screen
+// ============================================================
+const CATEGORIES = ["家電", "日用品", "スポーツ", "食品", "ファッション", "本", "コスメ"];
+const EMPTY_FORM = { name: "", price: "", description: "", stock: "", category: "家電" };
+
+function AdminScreen({ user, onBack, onLogout, cartCount, onCartClick }) {
+  const [products, setProducts] = useState(null);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [stockEdit, setStockEdit] = useState({});
+
+  const reload = () => {
+    adminListProducts().then(setProducts).catch(e => setError(e.message));
+  };
+  useEffect(reload, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      const data = { ...form, price: parseInt(form.price), stock: parseInt(form.stock) };
+      if (editId) await adminUpdateProduct(editId, data);
+      else await adminCreateProduct(data);
+      setForm(EMPTY_FORM); setEditId(null); reload();
+    } catch(ex) { setError(ex.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm("本当に削除しますか？")) return;
+    try { await adminDeleteProduct(id); reload(); }
+    catch(ex) { setError(ex.message); }
+  };
+
+  const handleStockSave = async (id) => {
+    try { await adminUpdateStock(id, parseInt(stockEdit[id])); reload(); setStockEdit(s => ({ ...s, [id]: undefined })); }
+    catch(ex) { setError(ex.message); }
+  };
+
+  return (
+    <div data-screen-label="Admin">
+      <Header user={user} onLogout={onLogout} query="" setQuery={() => {}} onLogoClick={onBack}
+              cartCount={cartCount} onCartClick={onCartClick} />
+      <div className="page">
+        <div className="breadcrumb">
+          <a href="#" onClick={e => { e.preventDefault(); onBack(); }}>ホーム</a>
+          <span className="sep">›</span><span>管理者パネル</span>
+        </div>
+        <h2 style={{ margin: "16px 0 20px", fontSize: 20 }}>商品管理</h2>
+
+        {error && <div className="error-banner"><span className="err-icon">!</span>{error}</div>}
+
+        <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 8, padding: 20, marginBottom: 24 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 12 }}>{editId ? "商品を編集" : "商品を追加"}</h3>
+          <form onSubmit={handleSubmit}>
+            <div className="admin-form-row">
+              <label>商品名<input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: 200 }} /></label>
+              <label>価格(円)<input required type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} style={{ width: 100 }} /></label>
+              <label>在庫数<input required type="number" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} style={{ width: 80 }} /></label>
+              <label>カテゴリ
+                <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </label>
+              <label style={{ flexGrow: 1 }}>説明
+                <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  rows={2} style={{ width: "100%", minWidth: 300 }} />
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-primary" type="submit" disabled={saving} style={{ padding: "7px 20px" }}>
+                {saving ? "保存中…" : editId ? "更新" : "追加"}
+              </button>
+              {editId && <button type="button" className="chip" onClick={() => { setEditId(null); setForm(EMPTY_FORM); }}>キャンセル</button>}
+            </div>
+          </form>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 8, overflow: "auto" }}>
+          {!products ? <div style={{ padding: 20, color: "var(--ink-3)" }}>読み込み中…</div> : (
+            <table className="admin-table">
+              <thead>
+                <tr><th>ID</th><th>商品名</th><th>カテゴリ</th><th>価格</th><th>在庫</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {products.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ color: "var(--ink-3)" }}>KM-{String(p.id).padStart(4, "0")}</td>
+                    <td style={{ fontWeight: 600, maxWidth: 180 }}>{p.name}</td>
+                    <td><span className="tag tag-cat">{p.category}</span></td>
+                    <td>{p.price.toLocaleString()}円</td>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <input type="number" value={stockEdit[p.id] ?? p.stock}
+                          onChange={e => setStockEdit(s => ({ ...s, [p.id]: e.target.value }))}
+                          style={{ width: 64, padding: "3px 6px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
+                        {stockEdit[p.id] !== undefined && stockEdit[p.id] != p.stock && (
+                          <button className="btn-primary" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => handleStockSave(p.id)}>保存</button>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button className="chip" style={{ fontSize: 12, padding: "3px 10px" }}
+                          onClick={() => { setEditId(p.id); setForm({ name: p.name, price: String(p.price), description: p.description || "", stock: String(p.stock), category: p.category }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                          編集
+                        </button>
+                        <button style={{ fontSize: 12, padding: "3px 10px", background: "none", border: "1px solid #e53", color: "#e53", borderRadius: 20, cursor: "pointer" }}
+                          onClick={() => handleDelete(p.id)}>
+                          削除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+// ============================================================
 // Root App — simple router
 // ============================================================
 function App() {
@@ -1077,6 +1260,7 @@ function App() {
   const [route, setRoute] = useState({ name: "login" });
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState([]);
+  const [wishlist, setWishlist] = useState(new Set());
 
   useEffect(() => {
     if (apiAuth.isLoggedIn()) {
@@ -1085,12 +1269,17 @@ function App() {
     }
   }, []);
 
-  const onLoggedIn = (u) => { setUser(u); setRoute({ name: "list" }); };
-  const onLogout = () => { apiLogout(); setUser(null); setRoute({ name: "login" }); setQuery(""); setCart([]); };
+  const onLoggedIn = (u) => {
+    setUser(u);
+    setRoute({ name: "list" });
+    fetchWishlist().then(ids => setWishlist(new Set((ids || []).map(Number)))).catch(() => {});
+  };
+  const onLogout = () => { apiLogout(); setUser(null); setRoute({ name: "login" }); setQuery(""); setCart([]); setWishlist(new Set()); };
   const onSelect = (id) => setRoute({ name: "detail", id });
   const onBack = () => setRoute({ name: "list" });
   const onCartClick = () => setRoute({ name: "cart" });
   const onOrdersClick = () => setRoute({ name: "orders" });
+  const onAdminClick = () => setRoute({ name: "admin" });
 
   const addToCart = (product, quantity) => {
     setCart(prev => {
@@ -1108,11 +1297,25 @@ function App() {
   const removeFromCart = (productId) => setCart(prev => prev.filter(i => i.product.id !== productId));
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
-  const sharedProps = { user, onLogout, cartCount, onCartClick, onOrdersClick };
+  const toggleWishlist = (productId) => {
+    setWishlist(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+        removeFromWishlist(productId).catch(() => {});
+      } else {
+        next.add(productId);
+        addToWishlist(productId).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const sharedProps = { user, onLogout, cartCount, onCartClick, onOrdersClick, onAdminClick, wishlist, onToggleWishlist: toggleWishlist };
 
   if (route.name === "login") return <LoginScreen onLoggedIn={onLoggedIn} />;
   if (route.name === "list") return (
-    <ProductListScreen {...sharedProps} onSelect={onSelect} query={query} setQuery={setQuery} />
+    <ProductListScreen {...sharedProps} onSelect={onSelect} query={query} setQuery={setQuery} onWishlistClick={() => setRoute({ name: "wishlist" })} />
   );
   if (route.name === "detail") return (
     <ProductDetailScreen {...sharedProps} id={route.id} onBack={onBack}
@@ -1124,6 +1327,12 @@ function App() {
   );
   if (route.name === "orders") return (
     <OrderHistoryScreen {...sharedProps} onBack={onBack} />
+  );
+  if (route.name === "wishlist") return (
+    <WishlistScreen {...sharedProps} onBack={onBack} onSelect={onSelect} />
+  );
+  if (route.name === "admin") return (
+    <AdminScreen {...sharedProps} onBack={onBack} />
   );
   return null;
 }

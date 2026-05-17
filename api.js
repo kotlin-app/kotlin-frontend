@@ -54,6 +54,7 @@ async function login(username, password) {
     token: data.token,
     user: {
       username: data.username,
+      role: data.role,
       displayName: data.role === "ADMIN" ? "管理者" : data.username,
       points: 0,
     },
@@ -140,7 +141,31 @@ async function fetchMyOrders() {
   return request("/api/orders/my");
 }
 
+// ---------- ウィッシュリスト ----------
+async function fetchWishlist() { return request("/api/wishlist"); }
+async function addToWishlist(productId) {
+  return request(`/api/wishlist/${productId}`, { method: "POST" });
+}
+async function removeFromWishlist(productId) {
+  return request(`/api/wishlist/${productId}`, { method: "DELETE" });
+}
+
+// ---------- 管理者: 商品CRUD ----------
+async function adminListProducts() { return request("/api/admin/products"); }
+async function adminCreateProduct(data) {
+  return request("/api/admin/products", { method: "POST", body: JSON.stringify(data) });
+}
+async function adminUpdateProduct(id, data) {
+  return request(`/api/admin/products/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+async function adminUpdateStock(id, stock) {
+  return request(`/api/admin/products/${id}/stock`, { method: "PATCH", body: JSON.stringify({ stock }) });
+}
+async function adminDeleteProduct(id) {
+  return request(`/api/admin/products/${id}`, { method: "DELETE" });
+}
+
 function logout() { auth.clear(); }
 
 // グローバル公開（Babel スコープ用）
-Object.assign(window, { ECApi: { login, logout, fetchProducts, fetchProduct, postReview, createOrder, fetchMyOrders, auth } });
+Object.assign(window, { ECApi: { login, logout, fetchProducts, fetchProduct, postReview, createOrder, fetchMyOrders, fetchWishlist, addToWishlist, removeFromWishlist, adminListProducts, adminCreateProduct, adminUpdateProduct, adminUpdateStock, adminDeleteProduct, auth } });
