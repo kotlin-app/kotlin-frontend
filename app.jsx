@@ -1,6 +1,6 @@
 /* global React, ReactDOM, ECApi */
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
-const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, auth: apiAuth } = ECApi;
+const { login: apiLogin, logout: apiLogout, fetchProducts, fetchProduct, createOrder, fetchMyOrders, auth: apiAuth } = ECApi;
 
 // ============================================================
 // Utilities
@@ -74,7 +74,7 @@ function Topbar() {
   );
 }
 
-function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery }) {
+function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery, cartCount = 0, onCartClick, onOrdersClick }) {
   const categories = ["すべて", "家電", "日用品", "スポーツ", "食品", "ファッション", "本", "コスメ", "ペット", "おもちゃ", "車・バイク"];
   return (
     <>
@@ -98,9 +98,9 @@ function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery }) {
             <button type="submit" aria-label="検索">🔍</button>
           </form>
           <div className="header-actions">
-            <button className="header-action" title="買い物かご">
+            <button className="header-action" title="買い物かご" onClick={onCartClick}>
               <div className="icon">🛒</div>
-              <div className="badge">2</div>
+              {cartCount > 0 && <div className="badge">{cartCount}</div>}
               <span>買い物かご</span>
             </button>
             <button className="header-action" title="お知らせ">
@@ -130,7 +130,7 @@ function Header({ user, onSearch, onLogoClick, onLogout, query, setQuery }) {
             <div className="userbar-points">利用可能 <strong style={{ fontSize: 14 }}>0</strong></div>
             <div className="userbar-points" style={{ color: "var(--ink-3)" }}>うち期間限定 <strong style={{ fontSize: 14, color: "var(--ink-2)" }}>0</strong></div>
             <div className="userbar-spacer" />
-            <button className="userbar-link">会員情報</button>
+            <button className="userbar-link" onClick={onOrdersClick}>注文履歴</button>
             <div className="userbar-divider" />
             <button className="userbar-link" onClick={onLogout}>ログアウト</button>
           </div>
@@ -418,7 +418,7 @@ function CardSkeleton() {
 // ============================================================
 // Product List Screen
 // ============================================================
-function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch }) {
+function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch, cartCount, onCartClick, onOrdersClick }) {
   const [products, setProducts] = useState(null);
   const [error, setError] = useState(null);
   const [category, setCategory] = useState("すべて");
@@ -464,6 +464,9 @@ function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch
         setQuery={setQuery}
         onSearch={(q) => { setActiveQuery(q); onSearch && onSearch(q); }}
         onLogout={onLogout}
+        cartCount={cartCount}
+        onCartClick={onCartClick}
+        onOrdersClick={onOrdersClick}
       />
 
       <div className="page">
@@ -531,7 +534,7 @@ function ProductListScreen({ user, onSelect, onLogout, query, setQuery, onSearch
 // ============================================================
 // Product Detail Screen
 // ============================================================
-function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSearch }) {
+function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSearch, onAddToCart, cartCount, onCartClick }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [qty, setQty] = useState(1);
@@ -573,6 +576,8 @@ function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSe
         onSearch={onSearch}
         onLogoClick={onBack}
         onLogout={onLogout}
+        cartCount={cartCount}
+        onCartClick={onCartClick}
       />
 
       <div className="page">
@@ -680,14 +685,17 @@ function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSe
                   <button
                     className="btn-cart"
                     disabled={data.stock === 0}
-                    onClick={() => showToast(`「${data.name.slice(0, 20)}…」を買い物かごに追加しました`)}
+                    onClick={() => {
+                      onAddToCart && onAddToCart(data, qty);
+                      showToast(`「${data.name.slice(0, 20)}」をかごに追加しました`);
+                    }}
                   >
                     <span>⊕</span> かごに追加
                   </button>
                   <button
                     className="btn-buy"
                     disabled={data.stock === 0}
-                    onClick={() => showToast("購入手続きへ進みます（プロトタイプ）")}
+                    onClick={() => { onAddToCart && onAddToCart(data, qty); onCartClick && onCartClick(); }}
                   >
                     <span>🛒</span> 購入手続きへ
                   </button>
@@ -777,14 +785,208 @@ function ProductDetailScreen({ id, user, onBack, onLogout, query, setQuery, onSe
 }
 
 // ============================================================
+// Cart Screen
+// ============================================================
+function CartScreen({ user, cart, onUpdateQty, onRemove, onBack, onLogout, onOrderComplete, cartCount, onCartClick }) {
+  const [ordering, setOrdering] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState(null);
+
+  const total = cart.reduce((s, item) => s + item.product.price * item.quantity, 0);
+
+  const handleOrder = async () => {
+    if (cart.length === 0) return;
+    setOrdering(true);
+    setError(null);
+    try {
+      for (const item of cart) {
+        await createOrder(item.product.id, item.quantity, item.product.price * item.quantity);
+      }
+      setDone(true);
+      setTimeout(() => { onOrderComplete && onOrderComplete(); }, 2000);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setOrdering(false);
+    }
+  };
+
+  return (
+    <div data-screen-label="04 Cart">
+      <Header user={user} onLogout={onLogout} query="" setQuery={() => {}} onLogoClick={onBack}
+              cartCount={cartCount} onCartClick={onCartClick} />
+      <div className="page">
+        <div className="breadcrumb">
+          <a href="#" onClick={e => { e.preventDefault(); onBack(); }}>ホーム</a>
+          <span className="sep">›</span><span>買い物かご</span>
+        </div>
+
+        <h2 style={{ margin: "16px 0", fontSize: 20 }}>買い物かご（{cart.length}点）</h2>
+
+        {done ? (
+          <div style={{ textAlign: "center", padding: "60px 20px" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+            <h3 style={{ color: "var(--success)", marginBottom: 8 }}>注文が完了しました！</h3>
+            <p style={{ color: "var(--ink-3)" }}>注文履歴から確認できます</p>
+          </div>
+        ) : cart.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--ink-3)" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+            <p>かごに商品がありません</p>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={onBack}>商品を見る</button>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, alignItems: "start" }}>
+            <div>
+              {cart.map(item => (
+                <div key={item.product.id} style={{
+                  display: "flex", gap: 16, padding: 16, marginBottom: 12,
+                  border: "1px solid var(--border)", borderRadius: 8, background: "#fff"
+                }}>
+                  <div style={{
+                    width: 80, height: 80, background: "var(--surface-2)", borderRadius: 6,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, flexShrink: 0
+                  }}>{glyphFor(item.product.category)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{item.product.name}</div>
+                    <div style={{ color: "var(--ink-3)", fontSize: 13, marginBottom: 8 }}>{item.product.shop}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div className="qty-control" style={{ transform: "scale(0.85)", transformOrigin: "left" }}>
+                        <button onClick={() => onUpdateQty(item.product.id, item.quantity - 1)} disabled={item.quantity <= 1}>−</button>
+                        <input value={item.quantity} readOnly style={{ width: 40 }} />
+                        <button onClick={() => onUpdateQty(item.product.id, item.quantity + 1)}>+</button>
+                      </div>
+                      <button onClick={() => onRemove(item.product.id)}
+                        style={{ background: "none", border: "none", color: "var(--ink-3)", cursor: "pointer", fontSize: 13 }}>
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>
+                      {(item.product.price * item.quantity).toLocaleString()}<span style={{ fontSize: 13 }}>円</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                      {item.product.price.toLocaleString()}円 × {item.quantity}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 20, background: "#fff", position: "sticky", top: 16 }}>
+              <h3 style={{ marginBottom: 16, fontSize: 16 }}>注文内容</h3>
+              {cart.map(item => (
+                <div key={item.product.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
+                  <span style={{ color: "var(--ink-2)" }}>{item.product.name.slice(0, 14)}…×{item.quantity}</span>
+                  <span>{(item.product.price * item.quantity).toLocaleString()}円</span>
+                </div>
+              ))}
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18 }}>
+                  <span>合計</span><span>{total.toLocaleString()}円</span>
+                </div>
+              </div>
+              {error && <div className="error-banner" style={{ marginTop: 12 }}><span className="err-icon">!</span>{error}</div>}
+              <button className="btn-buy" style={{ width: "100%", marginTop: 16 }}
+                onClick={handleOrder} disabled={ordering}>
+                {ordering ? "注文処理中…" : "注文を確定する"}
+              </button>
+              <button className="back-link" style={{ width: "100%", textAlign: "center", marginTop: 8 }} onClick={onBack}>
+                買い物を続ける
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+// ============================================================
+// Order History Screen
+// ============================================================
+function OrderHistoryScreen({ user, onBack, onLogout, cartCount, onCartClick }) {
+  const [orders, setOrders] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchMyOrders()
+      .then(setOrders)
+      .catch(e => setError(e.message));
+  }, []);
+
+  const statusLabel = { PENDING: "処理中", CONFIRMED: "確定", CANCELLED: "キャンセル済", SHIPPED: "発送済", DELIVERED: "配達完了" };
+  const statusColor = { PENDING: "#b66a00", CONFIRMED: "var(--success)", CANCELLED: "var(--ink-3)" };
+
+  return (
+    <div data-screen-label="05 Order History">
+      <Header user={user} onLogout={onLogout} query="" setQuery={() => {}} onLogoClick={onBack}
+              cartCount={cartCount} onCartClick={onCartClick} />
+      <div className="page">
+        <div className="breadcrumb">
+          <a href="#" onClick={e => { e.preventDefault(); onBack(); }}>ホーム</a>
+          <span className="sep">›</span><span>注文履歴</span>
+        </div>
+        <h2 style={{ margin: "16px 0", fontSize: 20 }}>注文履歴</h2>
+
+        {error && <div className="error-banner"><span className="err-icon">!</span>{error}</div>}
+
+        {!orders ? (
+          <div style={{ textAlign: "center", padding: 40, color: "var(--ink-3)" }}>読み込み中…</div>
+        ) : orders.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--ink-3)" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
+            <p>注文履歴がありません</p>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={onBack}>商品を見る</button>
+          </div>
+        ) : (
+          <div>
+            {orders.map(o => (
+              <div key={o.id} style={{
+                border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+                marginBottom: 12, background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center"
+              }}>
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>注文番号: KM-{String(o.id).padStart(6, "0")}</div>
+                  <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 4 }}>
+                    商品ID: {o.productId} ／ 数量: {o.quantity}点
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+                    {o.createdAt ? new Date(o.createdAt).toLocaleString("ja-JP") : ""}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+                    {Number(o.totalPrice).toLocaleString()}円
+                  </div>
+                  <div style={{
+                    display: "inline-block", padding: "2px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600,
+                    background: statusColor[o.status] + "22", color: statusColor[o.status]
+                  }}>
+                    {statusLabel[o.status] || o.status}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+// ============================================================
 // Root App — simple router
 // ============================================================
 function App() {
   const [user, setUser] = useState(null);
   const [route, setRoute] = useState({ name: "login" });
   const [query, setQuery] = useState("");
+  const [cart, setCart] = useState([]);
 
-  // 起動時：トークンが残っていれば自動でリストへ
   useEffect(() => {
     if (apiAuth.isLoggedIn()) {
       setUser({ username: "user", displayName: "ユーザー", points: 21645 });
@@ -792,38 +994,45 @@ function App() {
     }
   }, []);
 
-  const onLoggedIn = (u) => {
-    setUser(u);
-    setRoute({ name: "list" });
-  };
-
-  const onLogout = () => {
-    apiLogout();
-    setUser(null);
-    setRoute({ name: "login" });
-    setQuery("");
-  };
-
+  const onLoggedIn = (u) => { setUser(u); setRoute({ name: "list" }); };
+  const onLogout = () => { apiLogout(); setUser(null); setRoute({ name: "login" }); setQuery(""); setCart([]); };
   const onSelect = (id) => setRoute({ name: "detail", id });
   const onBack = () => setRoute({ name: "list" });
+  const onCartClick = () => setRoute({ name: "cart" });
+  const onOrdersClick = () => setRoute({ name: "orders" });
+
+  const addToCart = (product, quantity) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.product.id === product.id);
+      if (existing) return prev.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + quantity } : i);
+      return [...prev, { product, quantity }];
+    });
+  };
+
+  const updateQty = (productId, qty) => {
+    if (qty <= 0) { setCart(prev => prev.filter(i => i.product.id !== productId)); return; }
+    setCart(prev => prev.map(i => i.product.id === productId ? { ...i, quantity: qty } : i));
+  };
+
+  const removeFromCart = (productId) => setCart(prev => prev.filter(i => i.product.id !== productId));
+
+  const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
+  const sharedProps = { user, onLogout, cartCount, onCartClick, onOrdersClick };
 
   if (route.name === "login") return <LoginScreen onLoggedIn={onLoggedIn} />;
   if (route.name === "list") return (
-    <ProductListScreen
-      user={user}
-      onSelect={onSelect}
-      onLogout={onLogout}
-      query={query} setQuery={setQuery}
-    />
+    <ProductListScreen {...sharedProps} onSelect={onSelect} query={query} setQuery={setQuery} />
   );
   if (route.name === "detail") return (
-    <ProductDetailScreen
-      id={route.id}
-      user={user}
-      onBack={onBack}
-      onLogout={onLogout}
-      query={query} setQuery={setQuery}
-    />
+    <ProductDetailScreen {...sharedProps} id={route.id} onBack={onBack}
+      query={query} setQuery={setQuery} onAddToCart={addToCart} />
+  );
+  if (route.name === "cart") return (
+    <CartScreen {...sharedProps} cart={cart} onUpdateQty={updateQty} onRemove={removeFromCart}
+      onBack={onBack} onOrderComplete={() => { setCart([]); setRoute({ name: "orders" }); }} />
+  );
+  if (route.name === "orders") return (
+    <OrderHistoryScreen {...sharedProps} onBack={onBack} />
   );
   return null;
 }

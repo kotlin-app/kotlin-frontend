@@ -110,7 +110,22 @@ async function fetchProduct(id) {
   };
 }
 
+// ---------- 注文作成 ----------
+// BFF: POST /api/orders → order-service に転送（userId は BFF が JWT から付与）
+async function createOrder(productId, quantity, totalPrice) {
+  return request("/api/orders", {
+    method: "POST",
+    body: JSON.stringify({ productId, quantity, totalPrice }),
+  });
+}
+
+// ---------- 注文履歴 ----------
+// BFF: GET /api/orders/my → order-service の /api/orders/user/{userId}
+async function fetchMyOrders() {
+  return request("/api/orders/my");
+}
+
 function logout() { auth.clear(); }
 
 // グローバル公開（Babel スコープ用）
-Object.assign(window, { ECApi: { login, logout, fetchProducts, fetchProduct, auth } });
+Object.assign(window, { ECApi: { login, logout, fetchProducts, fetchProduct, createOrder, fetchMyOrders, auth } });
